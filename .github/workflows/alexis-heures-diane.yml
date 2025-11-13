@@ -1,0 +1,53 @@
+name: Envoyer les heures à Diane
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "heures/**"      # dès qu'un fichier dans heures/ change, on déclenche
+
+jobs:
+  send-email:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Récupérer le nom de l'employé (auteur du dernier commit)
+        run: |
+          EMPLOYEE_NAME="$(git log -1 --pretty=format:'%an')"
+          echo "EMPLOYEE_NAME=$EMPLOYEE_NAME" >> $GITHUB_ENV
+
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Installer la librairie pour PDF
+        run: pip install fpdf2
+
+      - name: Générer le PDF des heures
+        run: python generate_pdf.py
+
+      - name: Envoyer les heures par courriel à Diane
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          secure: true
+          to: ${{ secrets.DIANE_EMAIL }}
+          from: "Agent RH Construction <${{ secrets.SMTP_USERNAME }}>"
+          subject: "Heures de la semaine – ${{ env.EMPLOYEE_NAME }}"
+          body: |
+            Bonjour Diane,
+
+            Les heures de la semaine pour ${{ env.EMPLOYEE_NAME }} ont été soumises.
+            Le PDF des heures est joint à ce courriel.
+
+            Merci,
+            Agent RH Construction Québec
+          attachments: "rapport-heures.pdf"
