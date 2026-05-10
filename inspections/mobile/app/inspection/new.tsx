@@ -1,4 +1,3 @@
-import * as FileSystem from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
@@ -15,7 +14,9 @@ import {
 } from "react-native";
 import { useAuth } from "@/lib/auth";
 import { DEFAULT_CHECKLIST, type ChecklistItemValue } from "@/lib/checklist";
-import { supabase, type DefectSeverity, type OverallStatus } from "@/lib/supabase";
+import { useNetwork } from "@/lib/network";
+import { enqueue, persistPhoto, syncOutbox, type OutboxDefect } from "@/lib/outbox";
+import { type DefectSeverity, type OverallStatus } from "@/lib/supabase";
 
 type DefectDraft = {
   id: string;
@@ -42,6 +43,7 @@ export default function NewInspection() {
   const { machineId, machineCode } = useLocalSearchParams<{ machineId: string; machineCode: string }>();
   const router = useRouter();
   const { session, profile } = useAuth();
+  const { online } = useNetwork();
 
   const [inspectorName, setInspectorName] = useState(profile?.full_name ?? "");
   const [hoursMeter, setHoursMeter] = useState("");
@@ -81,28 +83,6 @@ export default function NewInspection() {
     }
   }
 
-  async function uploadPhoto(uri: string, inspectionId: string): Promise<string | null> {
-    try {
-      const ext = uri.split(".").pop() ?? "jpg";
-      const path = `${inspectionId}/${Date.now()}.${ext}`;
-      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-      const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
-
-      const { error } = await supabase.storage
-        .from("inspection-photos")
-        .upload(path, bytes, { contentType: `image/${ext}`, upsert: false });
-
-      if (error) {
-        console.warn("Upload photo échoué:", error.message);
-        return null;
-      }
-      return path;
-    } catch (e) {
-      console.warn("Erreur lecture photo:", e);
-      return null;
-    }
-  }
-
   async function submit() {
     if (!inspectorName.trim()) {
       Alert.alert("Champ requis", "Entrer votre nom.");
@@ -111,58 +91,61 @@ export default function NewInspection() {
     setSubmitting(true);
 
     try {
-      // 1. Créer l'inspection
-      const { data: inspection, error: insErr } = await supabase
-        .from("inspections")
-        .insert({
-          machine_id: machineId,
-          inspector_id: session?.user.id ?? null,
-          inspector_name: inspectorName.trim(),
-          inspector_email: session?.user.email ?? null,
-          hours_meter: hoursMeter ? Number(hoursMeter) : null,
-          odometer_km: odometerKm ? Number(odometerKm) : null,
-          overall_status: overallStatus,
-          checklist,
-          general_comments: comments.trim() || null,
-        })
-        .select()
-        .single();
-
-      if (insErr || !inspection) {
-        throw new Error(insErr?.message ?? "Création inspection échouée");
-      }
-
-      // 2. Créer les défauts
+      // Persister les photos dans documentDirectory pour les rendre stables
+      // (sinon le système peut effacer le cache et on perdrait l'image avant sync).
+      const persistedDefects: OutboxDefect[] = [];
       for (const d of defects) {
         if (!d.category.trim() || !d.description.trim()) continue;
-
-        const { data: defect, error: dErr } = await supabase
-          .from("defects")
-          .insert({
-            inspection_id: inspection.id,
-            category: d.category.trim(),
-            severity: d.severity,
-            description: d.description.trim(),
-          })
-          .select()
-          .single();
-
-        if (dErr || !defect) continue;
-
-        // 3. Uploader photo et lier au défaut
+        let photoLocalPath: string | undefined;
         if (d.photoUri) {
-          const path = await uploadPhoto(d.photoUri, inspection.id);
-          if (path) {
-            await supabase.from("inspection_photos").insert({
-              inspection_id: inspection.id,
-              defect_id: defect.id,
-              storage_path: path,
-            });
+          try {
+            photoLocalPath = await persistPhoto(d.photoUri);
+          } catch {
+            // Photo non copiée: on continue sans elle plutôt que de bloquer.
           }
         }
+        persistedDefects.push({
+          category: d.category.trim(),
+          severity: d.severity,
+          description: d.description.trim(),
+          photoLocalPath,
+        });
       }
 
-      Alert.alert("Inspection envoyée", `${machineCode} — envoyée au bureau.`);
+      // Toujours passer par l'outbox: comportement uniforme online/offline,
+      // jamais de risque de perte si le réseau coupe en plein milieu.
+      await enqueue({
+        machineId: machineId!,
+        machineCode: machineCode ?? "",
+        inspectorId: session?.user.id ?? null,
+        inspectorName: inspectorName.trim(),
+        inspectorEmail: session?.user.email ?? null,
+        hoursMeter: hoursMeter ? Number(hoursMeter) : null,
+        odometerKm: odometerKm ? Number(odometerKm) : null,
+        overallStatus,
+        checklist,
+        generalComments: comments.trim() || null,
+        defects: persistedDefects,
+      });
+
+      // Si on a du réseau, on tente la sync immédiate.
+      if (online !== false) {
+        const result = await syncOutbox();
+        if (result.failed === 0 && result.sent > 0) {
+          Alert.alert("Inspection envoyée", `${machineCode} — envoyée au bureau.`);
+        } else {
+          Alert.alert(
+            "Sauvegardée",
+            `Inspection sauvegardée. Envoi en attente (${result.failed > 0 ? "réessai automatique au prochain réseau" : "synchronisation en cours"}).`,
+          );
+        }
+      } else {
+        Alert.alert(
+          "Sauvegardée hors ligne",
+          `${machineCode} — l'inspection sera envoyée automatiquement quand le réseau reviendra.`,
+        );
+      }
+
       router.replace(`/machine/${machineCode}`);
     } catch (e: any) {
       Alert.alert("Erreur", e.message ?? String(e));
@@ -173,6 +156,14 @@ export default function NewInspection() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
+      {online === false && (
+        <View style={styles.offlineBanner}>
+          <Text style={styles.offlineBannerText}>
+            ⚠️ Hors ligne — l'inspection sera sauvegardée localement.
+          </Text>
+        </View>
+      )}
+
       <Text style={styles.machineLabel}>Machine: {machineCode}</Text>
 
       <Text style={styles.label}>Nom de l'inspecteur *</Text>
@@ -307,7 +298,9 @@ export default function NewInspection() {
         {submitting ? (
           <ActivityIndicator color="white" />
         ) : (
-          <Text style={styles.submitBtnText}>Envoyer au bureau</Text>
+          <Text style={styles.submitBtnText}>
+            {online === false ? "Sauvegarder hors ligne" : "Envoyer au bureau"}
+          </Text>
         )}
       </Pressable>
     </ScrollView>
@@ -316,6 +309,15 @@ export default function NewInspection() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 16, backgroundColor: "#f8fafc" },
+  offlineBanner: {
+    backgroundColor: "#fef3c7",
+    borderColor: "#f59e0b",
+    borderWidth: 1,
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  offlineBannerText: { color: "#92400e", textAlign: "center" },
   machineLabel: { fontSize: 14, color: "#64748b", marginBottom: 8 },
   label: { fontWeight: "600", marginTop: 12, marginBottom: 4, color: "#334155" },
   input: {

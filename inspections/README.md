@@ -111,6 +111,28 @@ L'app mobile et l'admin web exigent maintenant un login.
 - [x] Historique des inspections par machine
 - [x] Courriel automatique au bureau à chaque soumission
 - [x] Authentification (admin bureau / inspector terrain) avec RLS
+- [x] Mode hors ligne (cache machines + outbox d'inspections + sync auto)
+
+### Mode hors ligne — comment ça marche
+
+L'app mobile est conçue pour les chantiers sans réseau:
+
+- **Lecture**: la liste des machines et l'historique des inspections sont mis
+  en cache (AsyncStorage). Tant qu'un employé a ouvert l'app au moins une fois
+  avec du réseau, il peut consulter les machines hors ligne. Un libellé "cache"
+  apparaît quand les données viennent du cache local.
+- **Écriture**: chaque inspection passe par une **outbox locale**. Online ou
+  offline, le comportement est identique — l'inspection est sauvegardée
+  localement (les photos sont copiées dans le dossier de l'app pour ne pas
+  être effacées par le système), puis envoyée dès que possible.
+- **Sync automatique**: à chaque fois que l'app passe au premier plan, et à
+  chaque retour de réseau, l'outbox est traitée séquentiellement.
+- **Sync manuelle**: bouton "Synchroniser" sur l'accueil et l'écran "En attente
+  d'envoi" (toucher la bannière bleue pour y accéder).
+- **Échecs**: si une inspection échoue à s'envoyer (ex: le serveur refuse pour
+  une raison X), elle reste dans l'outbox avec un compteur de tentatives et
+  le dernier message d'erreur visible. L'employé peut la supprimer manuellement
+  depuis l'écran d'attente.
 
 ## Évolutions possibles (v2+)
 

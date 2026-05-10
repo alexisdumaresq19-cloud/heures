@@ -9,6 +9,8 @@ import {
   Text,
   View,
 } from "react-native";
+import { getCachedMachines, loadInspections } from "@/lib/cache";
+import { useNetwork } from "@/lib/network";
 import { supabase, type Inspection, type Machine } from "@/lib/supabase";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -27,32 +29,35 @@ const STATUS_COLOR: Record<string, string> = {
 export default function MachineScreen() {
   const { code } = useLocalSearchParams<{ code: string }>();
   const router = useRouter();
+  const { online } = useNetwork();
   const [machine, setMachine] = useState<Machine | null>(null);
   const [inspections, setInspections] = useState<Inspection[]>([]);
+  const [fromCache, setFromCache] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!code) return;
+    if (!code || online === null) return;
     (async () => {
-      const { data: m } = await supabase
-        .from("machines")
-        .select("*")
-        .eq("code", code)
-        .maybeSingle();
+      // 1. Trouver la machine: réseau si dispo, sinon cache
+      let m: Machine | null = null;
+      if (online !== false) {
+        const { data } = await supabase.from("machines").select("*").eq("code", code).maybeSingle();
+        m = (data as Machine) ?? null;
+      }
+      if (!m) {
+        const cached = await getCachedMachines();
+        m = cached.find(x => x.code === code) ?? null;
+      }
 
       if (m) {
-        setMachine(m as Machine);
-        const { data: insp } = await supabase
-          .from("inspections")
-          .select("*")
-          .eq("machine_id", m.id)
-          .order("inspected_at", { ascending: false })
-          .limit(50);
-        if (insp) setInspections(insp as Inspection[]);
+        setMachine(m);
+        const result = await loadInspections(m.id, online);
+        setInspections(result.inspections);
+        setFromCache(result.fromCache);
       }
       setLoading(false);
     })();
-  }, [code]);
+  }, [code, online]);
 
   if (loading) return <ActivityIndicator size="large" style={{ marginTop: 40 }} />;
 
@@ -61,6 +66,11 @@ export default function MachineScreen() {
       <View style={styles.center}>
         <Text style={styles.title}>Machine introuvable</Text>
         <Text style={styles.muted}>Code: {code}</Text>
+        {online === false && (
+          <Text style={[styles.muted, { marginTop: 8 }]}>
+            (Hors ligne — la machine n'est peut-être pas dans le cache.)
+          </Text>
+        )}
         <Pressable style={styles.btn} onPress={() => router.back()}>
           <Text style={styles.btnText}>Retour</Text>
         </Pressable>
@@ -86,7 +96,10 @@ export default function MachineScreen() {
         </Pressable>
       </Link>
 
-      <Text style={styles.sectionTitle}>Historique ({inspections.length})</Text>
+      <View style={styles.sectionRow}>
+        <Text style={styles.sectionTitle}>Historique ({inspections.length})</Text>
+        {fromCache && <Text style={styles.cacheLabel}>cache</Text>}
+      </View>
 
       <FlatList
         data={inspections}
@@ -121,7 +134,9 @@ const styles = StyleSheet.create({
   primaryBtnText: { color: "white", fontSize: 16, fontWeight: "600" },
   btn: { backgroundColor: "#0f172a", paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8, marginTop: 16 },
   btnText: { color: "white", fontWeight: "600" },
-  sectionTitle: { fontSize: 16, fontWeight: "600", marginBottom: 8, color: "#334155" },
+  sectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+  sectionTitle: { fontSize: 16, fontWeight: "600", color: "#334155" },
+  cacheLabel: { fontSize: 11, color: "#94a3b8", fontStyle: "italic" },
   inspCard: { backgroundColor: "white", padding: 14, borderRadius: 8, marginBottom: 8 },
   badge: { alignSelf: "flex-start", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, marginBottom: 6 },
   badgeText: { color: "white", fontSize: 12, fontWeight: "600" },
