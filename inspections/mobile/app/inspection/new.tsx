@@ -13,6 +13,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useAuth } from "@/lib/auth";
 import { DEFAULT_CHECKLIST, type ChecklistItemValue } from "@/lib/checklist";
 import { supabase, type DefectSeverity, type OverallStatus } from "@/lib/supabase";
 
@@ -40,8 +41,9 @@ const SEVERITY_OPTIONS: { value: DefectSeverity; label: string; color: string }[
 export default function NewInspection() {
   const { machineId, machineCode } = useLocalSearchParams<{ machineId: string; machineCode: string }>();
   const router = useRouter();
+  const { session, profile } = useAuth();
 
-  const [inspectorName, setInspectorName] = useState("");
+  const [inspectorName, setInspectorName] = useState(profile?.full_name ?? "");
   const [hoursMeter, setHoursMeter] = useState("");
   const [odometerKm, setOdometerKm] = useState("");
   const [overallStatus, setOverallStatus] = useState<OverallStatus>("ok");
@@ -114,7 +116,9 @@ export default function NewInspection() {
         .from("inspections")
         .insert({
           machine_id: machineId,
+          inspector_id: session?.user.id ?? null,
           inspector_name: inspectorName.trim(),
+          inspector_email: session?.user.email ?? null,
           hours_meter: hoursMeter ? Number(hoursMeter) : null,
           odometer_km: odometerKm ? Number(odometerKm) : null,
           overall_status: overallStatus,

@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { useAuth } from "../lib/auth";
 import { supabase, type Machine } from "../lib/supabase";
 
 export default function MachinesPage() {
+  const { profile } = useAuth();
   const [machines, setMachines] = useState<Machine[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -28,9 +30,11 @@ export default function MachinesPage() {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
         <h1>Machines</h1>
-        <Link to="/machines/new" className="btn" style={{ alignSelf: "center" }}>
-          + Nouvelle machine
-        </Link>
+        {profile?.role === "admin" && (
+          <Link to="/machines/new" className="btn" style={{ alignSelf: "center" }}>
+            + Nouvelle machine
+          </Link>
+        )}
       </div>
 
       <input

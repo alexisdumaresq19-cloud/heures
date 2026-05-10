@@ -9,10 +9,12 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useAuth } from "@/lib/auth";
 import { supabase, type Machine } from "@/lib/supabase";
 
 export default function Home() {
   const router = useRouter();
+  const { profile, signOut } = useAuth();
   const [machines, setMachines] = useState<Machine[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -36,6 +38,14 @@ export default function Home() {
 
   return (
     <View style={styles.container}>
+      <View style={styles.userBar}>
+        <Text style={styles.userBarText}>
+          Connecté: <Text style={{ fontWeight: "700" }}>{profile?.full_name ?? "—"}</Text>
+          {profile?.role === "admin" && <Text style={styles.adminBadge}>  ADMIN</Text>}
+        </Text>
+        <Pressable onPress={signOut}><Text style={styles.signOut}>Déconnexion</Text></Pressable>
+      </View>
+
       <Pressable style={styles.scanBtn} onPress={() => router.push("/scan")}>
         <Text style={styles.scanBtnText}>Scanner un QR code</Text>
       </Pressable>
@@ -100,4 +110,14 @@ const styles = StyleSheet.create({
   machineName: { fontSize: 16, fontWeight: "600", marginTop: 2 },
   machineSite: { fontSize: 13, color: "#64748b", marginTop: 4 },
   empty: { textAlign: "center", marginTop: 40, color: "#94a3b8" },
+  userBar: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  userBarText: { color: "#334155", flex: 1 },
+  adminBadge: { color: "#0ea5e9", fontWeight: "700", fontSize: 12 },
+  signOut: { color: "#dc2626", fontWeight: "600" },
 });

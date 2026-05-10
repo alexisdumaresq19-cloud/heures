@@ -82,6 +82,27 @@ npx eas build --platform android
 npx eas build --platform ios
 ```
 
+### 5. Premier compte admin
+
+L'app mobile et l'admin web exigent maintenant un login.
+
+1. Lancer l'app mobile, créer un compte (Nom + courriel + mot de passe).
+2. Dans Supabase → SQL Editor, promouvoir ce compte en admin:
+   ```sql
+   update profiles set role = 'admin' where full_name = 'Votre Nom';
+   -- ou par courriel:
+   update profiles set role = 'admin'
+     where id = (select id from auth.users where email = 'vous@exemple.com');
+   ```
+3. Se connecter à l'admin web avec ces identifiants.
+4. Tous les comptes employés suivants peuvent être créés depuis l'app mobile
+   (rôle `inspector` par défaut). Vous pourrez les promouvoir admin depuis
+   la page **Utilisateurs** de l'admin web.
+
+> **Astuce:** dans Supabase → Authentication → Settings, vous pouvez désactiver
+> "Confirm email" pendant la phase de test pour ne pas avoir à confirmer chaque
+> nouveau compte par courriel.
+
 ## MVP — fonctionnalités v1
 
 - [x] Génération de QR par machine (admin)
@@ -89,6 +110,7 @@ npx eas build --platform ios
 - [x] Photos sur les défauts
 - [x] Historique des inspections par machine
 - [x] Courriel automatique au bureau à chaque soumission
+- [x] Authentification (admin bureau / inspector terrain) avec RLS
 
 ## Évolutions possibles (v2+)
 
