@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "Inspections QR",
+    "slug": "inspections-qr",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "inspections",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Pour scanner les codes QR des machines et prendre des photos de défauts.",
+        "NSPhotoLibraryUsageDescription": "Pour joindre des photos aux rapports d'inspection."
+      }
+    },
+    "android": {
+      "package": "com.entreprise.inspectionsqr",
+      "permissions": ["CAMERA", "READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE"]
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        { "cameraPermission": "Pour scanner les codes QR des machines." }
+      ],
+      [
+        "expo-image-picker",
+        { "photosPermission": "Pour joindre des photos aux inspections." }
+      ]
+    ]
+  }
+}
