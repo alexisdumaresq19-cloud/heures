@@ -69,8 +69,8 @@ npm run dev
 
 ```bash
 cd mobile
-npm install
-cp .env.example .env   # remplir SUPABASE_URL et SUPABASE_ANON_KEY
+npm install --ignore-scripts   # --ignore-scripts évite l'échec d'un postinstall (bob/husky) inutile pour Expo Go
+cp .env.example .env           # remplir SUPABASE_URL et SUPABASE_ANON_KEY
 npx expo start
 ```
 
