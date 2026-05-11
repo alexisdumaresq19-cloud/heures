@@ -82,6 +82,8 @@ begin
 end;
 $$ language plpgsql;
 
+alter function set_updated_at() set search_path = public;
+
 create trigger trg_machines_updated_at
   before update on machines
   for each row execute function set_updated_at();
@@ -98,7 +100,10 @@ create table profiles (
 create index idx_profiles_role on profiles(role);
 
 create or replace function handle_new_user()
-returns trigger as $$
+returns trigger
+language plpgsql security definer
+set search_path = public
+as $$
 begin
   insert into profiles (id, full_name, role)
   values (
@@ -108,7 +113,8 @@ begin
   );
   return new;
 end;
-$$ language plpgsql security definer;
+$$;
+revoke execute on function public.handle_new_user() from anon, authenticated, public;
 
 create trigger on_auth_user_created
   after insert on auth.users
@@ -121,6 +127,7 @@ set search_path = public
 as $$
   select exists(select 1 from profiles where id = auth.uid() and role = 'admin');
 $$;
+revoke execute on function public.is_admin() from anon, public;
 
 -- ------------------------------------------------------------------------
 -- 4. AUDIT: inspections.inspector_id
@@ -151,7 +158,7 @@ create policy "machines_write" on machines for all    to authenticated using (is
 
 -- inspections
 create policy "inspections_read"   on inspections for select to authenticated using (true);
-create policy "inspections_insert" on inspections for insert to authenticated with check (true);
+create policy "inspections_insert" on inspections for insert to authenticated with check (inspector_id = auth.uid() or is_admin());
 create policy "inspections_update" on inspections for update to authenticated using (is_admin()) with check (is_admin());
 create policy "inspections_delete" on inspections for delete to authenticated using (is_admin());
 
